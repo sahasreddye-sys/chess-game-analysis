@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-[#1e1c1a] text-neutral-100 antialiased;
+}
+
+/* Thin custom scrollbar for the move list */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-neutral-600 rounded;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
