@@ -1,6 +1,9 @@
 import type { AnalysisRequest, EngineLine } from "./types";
 
-const ENGINE_URL = "/stockfish/stockfish-nnue-16-single.js";
+// Respect the deploy sub-path (e.g. GitHub Pages project sites at /<repo>) so
+// the worker — and the .wasm / .nnue it loads relative to itself — resolve.
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const ENGINE_URL = `${BASE_PATH}/stockfish/stockfish-nnue-16-single.js`;
 
 /**
  * Thin, Promise-based wrapper around the Stockfish WASM worker.

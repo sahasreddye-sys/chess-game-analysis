@@ -87,6 +87,33 @@ npm run dev
 Paste a PGN (or click **Load sample**) and hit **Analyze**. The engine then
 evaluates every position in the background.
 
+## Deploying as a static site (no server)
+
+The app is a **fully static site** — there is no Node server in production. It
+has no API routes and no server-side data fetching, so `next build` is
+configured to emit a static export (`output: "export"` in
+[next.config.mjs](next.config.mjs)):
+
+```bash
+npm run build     # produces a static ./out folder (HTML/CSS/JS + engine)
+```
+
+Serve the contents of `out/` from **any** static host (GitHub Pages, Netlify,
+Cloudflare Pages, S3, `npx serve out`, …). No `npm start`, no running server.
+
+**GitHub Pages** is wired up via [.github/workflows/deploy.yml](.github/workflows/deploy.yml):
+
+1. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Push to `main`. The workflow runs `npm ci` (which copies the engine via the
+   postinstall script), builds the static export with `BASE_PATH=/chess-game-analysis`,
+   and publishes `out/`.
+3. The site goes live at `https://<user>.github.io/chess-game-analysis/`.
+
+The `BASE_PATH` env var sets the sub-path the site is served from (a Pages
+*project* site lives at `/<repo>`); it's also baked into the Stockfish worker
+URL so the engine loads correctly. For a root deploy (custom domain, Netlify,
+user/org Pages site) leave `BASE_PATH` unset.
+
 ### Engine notes
 
 - We ship the **single-threaded** Stockfish 16 build on purpose: it doesn't use
