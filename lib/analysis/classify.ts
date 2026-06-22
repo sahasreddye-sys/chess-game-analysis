@@ -91,17 +91,21 @@ function legalMoveCount(fen: string): number {
 }
 
 /**
- * Is this best/near-best move a sound sacrifice? True when, after the move, the
- * mover has a piece (≥ a knight) en prise yet the engine still rates the
- * position fine for them — i.e. they gave up material for a lasting edge.
+ * Is this move a genuine brilliancy? True only when it is (essentially) the
+ * engine's own move, leaves one of the mover's pieces (≥ a knight) en prise,
+ * the sacrifice is sound (still at least equal afterwards), and the mover
+ * wasn't already completely winning — so a "sac" there is just simplification,
+ * not a find. Kept strict to avoid the false positives Chess.com doesn't give.
  */
 function isBrilliant(
   ply: Ply,
+  moverBefore: number,
   moverAfter: number,
   cpLoss: number
 ): boolean {
-  if (cpLoss > 25) return false; // must be (near) the engine's choice
-  if (moverAfter < -30) return false; // and the sac must be sound
+  if (cpLoss > 10) return false; // must be (essentially) the engine's choice
+  if (moverAfter < 0) return false; // the sacrifice must be sound
+  if (moverBefore > 450) return false; // not just cashing in while crushing
   const hang = findHangingPiece(ply.fenAfter, ply.color);
   return !!hang && hang.loss >= 200;
 }
@@ -145,7 +149,7 @@ export function classifyMove(
   if (legalMoveCount(ply.fenBefore) <= 1) return { ...base, quality: "forced" };
 
   // 3) Sound sacrifice → Brilliant.
-  if (isBrilliant(ply, moverAfter, cpLoss)) {
+  if (isBrilliant(ply, moverBefore, moverAfter, cpLoss)) {
     return { ...base, quality: "brilliant" };
   }
 
@@ -154,10 +158,10 @@ export function classifyMove(
   //    loss — so it isn't just a forced recapture in a lost position), with the
   //    next-best move much worse, in a roughly balanced position.
   const secondWhite = secondToWhiteCp(before);
-  if (playedBest && secondWhite !== null && rawLoss <= 40) {
+  if (playedBest && secondWhite !== null && rawLoss <= 25) {
     const moverSecond = sign * secondWhite;
     const gap = moverBefore - moverSecond;
-    if (gap >= 150 && moverBefore <= 250 && moverBefore >= -150) {
+    if (gap >= 200 && moverBefore <= 200 && moverBefore >= -120) {
       return { ...base, quality: "great" };
     }
   }

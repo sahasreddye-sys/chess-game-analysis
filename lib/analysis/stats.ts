@@ -1,7 +1,7 @@
 import type { ParsedGame } from "@/lib/types";
 import type { EngineLine } from "@/lib/engine/types";
 import type { MoveClassification, MoveQuality } from "./classify";
-import { accuracyForMove } from "./winprob";
+import { perMoveAccuracies, blendAccuracy } from "./accuracy";
 import { estimateElo } from "./elo";
 
 export type Phase = "opening" | "middlegame" | "endgame";
@@ -63,11 +63,33 @@ export function phaseOf(fen: string, moveNumber: number): Phase {
   return "middlegame";
 }
 
-function emptyPhases(): Record<Phase, { sumAcc: number; moves: number }> {
+/**
+ * Volatility-weighted, harmonic-blended accuracy for one side, overall and per
+ * phase. See `accuracy.ts` for why this is harsher (and more realistic) than a
+ * plain mean of per-move accuracies.
+ */
+function sideAccuracy(
+  game: ParsedGame,
+  results: Record<number, EngineLine>,
+  color: "w" | "b"
+): { overall: number; phase: Record<Phase, { accuracy: number | null; moves: number }> } {
+  const items = perMoveAccuracies(game, results, color);
+  const byPhase: Record<Phase, { acc: number; weight: number }[]> = {
+    opening: [],
+    middlegame: [],
+    endgame: [],
+  };
+  for (const it of items) {
+    const ply = game.plies[it.ply - 1];
+    byPhase[phaseOf(ply.fenBefore, ply.moveNumber)].push(it);
+  }
+  const phase = (p: Phase) => ({
+    accuracy: blendAccuracy(byPhase[p]),
+    moves: byPhase[p].length,
+  });
   return {
-    opening: { sumAcc: 0, moves: 0 },
-    middlegame: { sumAcc: 0, moves: 0 },
-    endgame: { sumAcc: 0, moves: 0 },
+    overall: blendAccuracy(items) ?? 0,
+    phase: { opening: phase("opening"), middlegame: phase("middlegame"), endgame: phase("endgame") },
   };
 }
 
@@ -81,16 +103,7 @@ export function computeStats(
   results: Record<number, EngineLine>,
   classifications: Record<number, MoveClassification>
 ): GameStats {
-  const acc = () => ({
-    sumAcc: 0,
-    accMoves: 0,
-    sumLoss: 0,
-    lossMoves: 0,
-    moveCount: 0,
-    counts: emptyCounts(),
-    phases: emptyPhases(),
-  });
-
+  const acc = () => ({ sumLoss: 0, lossMoves: 0, moveCount: 0, counts: emptyCounts() });
   const agg = { w: acc(), b: acc() };
 
   for (const ply of game.plies) {
@@ -99,43 +112,31 @@ export function computeStats(
     const side = agg[ply.color];
     side.moveCount++;
     side.counts[cls.quality]++;
-
     side.sumLoss += cls.cpLoss;
     side.lossMoves++;
-
-    const a = accuracyForMove(
-      results[ply.index - 1],
-      results[ply.index],
-      ply.color
-    );
-    if (a !== null) {
-      side.sumAcc += a;
-      side.accMoves++;
-      const phase = phaseOf(ply.fenBefore, ply.moveNumber);
-      side.phases[phase].sumAcc += a;
-      side.phases[phase].moves++;
-    }
   }
 
   const finalize = (color: "w" | "b"): SideStats => {
     const s = agg[color];
-    const phase = (p: Phase): PhaseStat => {
-      const accuracy = s.phases[p].moves ? s.phases[p].sumAcc / s.phases[p].moves : null;
-      return { moves: s.phases[p].moves, accuracy, elo: estimateElo(accuracy) };
-    };
-    const accuracy = s.accMoves ? s.sumAcc / s.accMoves : 0;
+    const acc = sideAccuracy(game, results, color);
+    const phase = (p: Phase): PhaseStat => ({
+      moves: acc.phase[p].moves,
+      accuracy: acc.phase[p].accuracy,
+      elo: estimateElo(acc.phase[p].accuracy),
+    });
     const bestMoves = s.counts.brilliant + s.counts.great + s.counts.best;
+    const hasAccuracy = s.moveCount > 0;
     return {
       color,
       moveCount: s.moveCount,
-      accuracy,
+      accuracy: acc.overall,
       acpl: s.lossMoves ? s.sumLoss / s.lossMoves : 0,
       inaccuracies: s.counts.inaccuracy,
       mistakes: s.counts.mistake,
       blunders: s.counts.blunder,
       bestMoves,
       bestMovePct: s.moveCount ? (bestMoves / s.moveCount) * 100 : 0,
-      estimatedElo: s.accMoves ? estimateElo(accuracy) : null,
+      estimatedElo: hasAccuracy ? estimateElo(acc.overall) : null,
       counts: s.counts,
       phase: {
         opening: phase("opening"),

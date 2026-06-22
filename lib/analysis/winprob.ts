@@ -20,25 +20,3 @@ export function winPercentWhite(line: EngineLine | undefined): number | null {
   // Lichess constant.
   return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
 }
-
-/**
- * Accuracy of a single move, in [0, 100], from the mover's point of view.
- * `before` is the position before the move, `after` the position after.
- */
-export function accuracyForMove(
-  before: EngineLine | undefined,
-  after: EngineLine | undefined,
-  color: "w" | "b"
-): number | null {
-  const wb = winPercentWhite(before);
-  const wa = winPercentWhite(after);
-  if (wb === null || wa === null) return null;
-
-  // Flip to mover POV.
-  const moverBefore = color === "w" ? wb : 100 - wb;
-  const moverAfter = color === "w" ? wa : 100 - wa;
-  const drop = Math.max(0, moverBefore - moverAfter);
-
-  const acc = 103.1668 * Math.exp(-0.04354 * drop) - 3.1669;
-  return Math.max(0, Math.min(100, acc));
-}

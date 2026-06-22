@@ -1,17 +1,38 @@
 /**
- * Rough mapping from move accuracy (0–100) to an estimated Elo rating.
- *
- * There is no official public formula for this, so we use a quadratic fit
- * calibrated to feel right against familiar reference points:
- *   ~50% → ~600,  ~75% → ~1350,  ~85% → ~1800,  ~95% → ~2300,  100% → ~2600.
- * It's a rule-of-thumb performance estimate for a single game, not a true
- * rating — short games and forced lines make any such estimate noisy.
+ * Rough mapping from (Lichess-style, volatility-weighted) move accuracy to an
+ * estimated Elo. There is no official public formula, so we interpolate through
+ * calibration anchors chosen to stay grounded against real games rather than
+ * flatter the player — e.g. ~63% ≈ 800, ~70% ≈ 1050, ~80% ≈ 1450, ~90% ≈ 2000.
+ * It's a noisy single-game estimate, not a true rating.
  */
+const ELO_ANCHORS: [number, number][] = [
+  [0, 100],
+  [30, 250],
+  [40, 400],
+  [50, 560],
+  [60, 740],
+  [65, 850],
+  [70, 1050],
+  [75, 1230],
+  [80, 1450],
+  [85, 1700],
+  [90, 2000],
+  [95, 2350],
+  [100, 2700],
+];
+
 export function estimateElo(accuracy: number | null): number | null {
   if (accuracy === null) return null;
   const a = Math.max(0, Math.min(100, accuracy));
-  const elo = 0.3889 * a * a - 18.61 * a + 558;
-  return Math.round(Math.max(200, Math.min(2900, elo)));
+  for (let i = 1; i < ELO_ANCHORS.length; i++) {
+    const [x1, y1] = ELO_ANCHORS[i - 1];
+    const [x2, y2] = ELO_ANCHORS[i];
+    if (a <= x2) {
+      const t = (a - x1) / (x2 - x1);
+      return Math.round(y1 + t * (y2 - y1));
+    }
+  }
+  return ELO_ANCHORS[ELO_ANCHORS.length - 1][1];
 }
 
 /** A coarse descriptive band for an estimated rating. */
