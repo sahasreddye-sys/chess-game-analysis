@@ -49,6 +49,10 @@ Built in phases:
     opening performance, and a blunder heatmap. Your side is detected per game
     by name match (or a White/Black toggle).
   - **Responsive** — board-first layout on mobile, three columns on desktop.
+- [x] **Explore variations ("what-if" board)**: drag any piece to branch off
+      the game into a live variation that the engine re-evaluates on every move,
+      or click through the engine's best line to see exactly how it would have
+      played out. Undo / reset / jump within the variation, then "Back to game".
 - [x] **Profiles & saved games**: create local profiles (with an optional PIN —
       a soft lock, not real security), save analyzed games to your profile, and
       reopen them later — the cached engine analysis is restored instantly, no

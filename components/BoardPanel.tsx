@@ -7,8 +7,15 @@ import type { BoardArrow } from "@/lib/analysis/arrows";
 interface BoardPanelProps {
   fen: string;
   orientation: "white" | "black";
-  /** Overlay arrows: green best move, red mistake/blunder (Phase 5). */
+  /** Overlay arrows: green best move, red mistake/blunder. */
   arrows?: BoardArrow[];
+  /** When true the user can drag pieces to explore variations. */
+  draggable?: boolean;
+  /**
+   * Called when a piece is dropped. Return true to accept the move (the parent
+   * must update `fen`), false to snap it back.
+   */
+  onPieceDrop?: (from: string, to: string, piece: string) => boolean;
 }
 
 // Stable style object identities — recreating these inline each render makes
@@ -22,21 +29,26 @@ const LIGHT_SQUARE = { backgroundColor: "#eeeed2" } as const;
 const NO_ARROWS: BoardArrow[] = [];
 
 /**
- * Read-only board for game review. Dragging is disabled — navigation happens
- * through the move list and nav controls. Arrow overlays update automatically
- * as `arrows` changes with navigation.
+ * Review board. Read-only by default (navigation via the move list / controls);
+ * when `draggable` is set, the user can drag pieces to branch into a "what-if"
+ * variation. Arrow overlays update automatically as `arrows` changes.
  */
 export default function BoardPanel({
   fen,
   orientation,
   arrows = NO_ARROWS,
+  draggable = false,
+  onPieceDrop,
 }: BoardPanelProps) {
   return (
     <div className="w-full">
       <Chessboard
         position={fen}
         boardOrientation={orientation}
-        arePiecesDraggable={false}
+        arePiecesDraggable={draggable}
+        onPieceDrop={(from, to, piece) =>
+          onPieceDrop ? onPieceDrop(from, to, piece) : false
+        }
         animationDuration={200}
         customArrows={arrows as Arrow[]}
         customBoardStyle={BOARD_STYLE}

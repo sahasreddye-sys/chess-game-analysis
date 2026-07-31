@@ -49,6 +49,8 @@ export interface Review {
   loadPgns: (text: string) => void;
   /** Restore a saved game with its cached analysis (no re-analysis if complete). */
   loadSavedGame: (saved: SavedGameLoad) => void;
+  /** Evaluate an arbitrary position on demand (for the exploration board). */
+  evaluateFen: (fen: string, depth?: number) => Promise<EngineLine | null>;
 
   // Navigation for the active game.
   ply: number;
@@ -251,6 +253,15 @@ export function useReview(): Review {
     [analyzeAll]
   );
 
+  const evaluateFen = useCallback(
+    (fen: string, d?: number): Promise<EngineLine | null> => {
+      const engine = engineRef.current;
+      if (!engine) return Promise.resolve(null);
+      return engine.evaluate({ fen, depth: d ?? depth }).catch(() => null);
+    },
+    [depth]
+  );
+
   const activeGame = games[activeIndex] ?? null;
   const lastPly = activeGame ? activeGame.game.positions.length - 1 : 0;
 
@@ -304,6 +315,7 @@ export function useReview(): Review {
     error,
     loadPgns,
     loadSavedGame,
+    evaluateFen,
     ply,
     currentFen,
     goTo,

@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReview } from "@/hooks/useReview";
 import { useAccount } from "@/hooks/useAccount";
+import { useExplorer } from "@/hooks/useExplorer";
 import type { SavedGame } from "@/lib/storage/types";
+import type { EngineLine } from "@/lib/engine/types";
 import { classifyGame, type MoveQuality } from "@/lib/analysis/classify";
-import { buildArrows } from "@/lib/analysis/arrows";
+import { buildArrows, ARROW_BEST, type BoardArrow } from "@/lib/analysis/arrows";
 import { explainGame } from "@/lib/analysis/explain";
 import { computeStats } from "@/lib/analysis/stats";
 import { buildInsights } from "@/lib/analysis/insights";
@@ -25,6 +27,7 @@ import NavigationControls from "@/components/NavigationControls";
 import MoveList from "@/components/MoveList";
 import EnginePanel from "@/components/EnginePanel";
 import ExplanationPanel from "@/components/ExplanationPanel";
+import ExplorePanel from "@/components/ExplorePanel";
 import StatsPanel from "@/components/StatsPanel";
 import InsightsPanel from "@/components/InsightsPanel";
 import HighlightsPanel from "@/components/HighlightsPanel";
@@ -39,11 +42,21 @@ type BottomTab = "summary" | "stats" | "insights" | "coach" | "trends";
 // Moves that count as "key moments" for jump-to navigation.
 const KEY_QUALITIES: MoveQuality[] = ["brilliant", "great", "mistake", "blunder"];
 
+// Depth for on-the-fly variation evals — a touch shallower than the full game
+// pass so exploring feels responsive.
+const EXPLORE_DEPTH = 14;
+
 export default function Home() {
   const review = useReview();
   const session = useAccount();
+  const explorer = useExplorer();
   const { activeGame } = review;
   const [tab, setTab] = useState<BottomTab>("summary");
+
+  // Engine evaluation of the position currently being explored.
+  const [exploreEval, setExploreEval] = useState<EngineLine | undefined>(undefined);
+  const [exploreThinking, setExploreThinking] = useState(false);
+  const exploreToken = useRef(0);
 
   const [authOpen, setAuthOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -114,13 +127,22 @@ export default function Home() {
       .sort((a, b) => a - b);
   }, [activeGame, classifications]);
 
+  // Navigating the game always leaves any open variation.
+  const goToPly = useCallback(
+    (ply: number) => {
+      explorer.exit();
+      review.goTo(ply);
+    },
+    [explorer, review]
+  );
+
   const goToNextKeyMoment = () => {
     const next = keyMoments.find((p) => p > review.ply);
-    if (next !== undefined) review.goTo(next);
+    if (next !== undefined) goToPly(next);
   };
   const goToPrevKeyMoment = () => {
     const prev = [...keyMoments].reverse().find((p) => p < review.ply);
-    if (prev !== undefined) review.goTo(prev);
+    if (prev !== undefined) goToPly(prev);
   };
 
   // ---- Board arrows (kept stable while content is unchanged) ----
@@ -168,18 +190,63 @@ export default function Home() {
   const topName = whiteAtBottom ? black : white;
   const bottomName = whiteAtBottom ? white : black;
 
+  // ---- Exploration board ----
+  // The position shown: the explored variation tip, or the game position.
+  const displayedFen =
+    explorer.active && explorer.currentFen ? explorer.currentFen : review.currentFen;
+  const gameEval = activeGame?.results[review.ply];
+  // Eval driving the bar and the explore panel: explored position vs. game ply.
+  const boardEval = explorer.active ? exploreEval : gameEval;
+
+  // Re-evaluate whenever the explored position changes (latest wins).
+  useEffect(() => {
+    if (!explorer.active || !explorer.currentFen) {
+      setExploreEval(undefined);
+      setExploreThinking(false);
+      return;
+    }
+    const token = ++exploreToken.current;
+    setExploreThinking(true);
+    review.evaluateFen(explorer.currentFen, EXPLORE_DEPTH).then((line) => {
+      if (token !== exploreToken.current) return;
+      setExploreEval(line ?? undefined);
+      setExploreThinking(false);
+    });
+  }, [explorer.active, explorer.currentFen, review.evaluateFen]);
+
+  // Green best-move arrow for the explored position.
+  const exploreArrows = useMemo<BoardArrow[]>(() => {
+    const bm = exploreEval?.bestMove;
+    return bm ? [[bm.slice(0, 2), bm.slice(2, 4), ARROW_BEST]] : [];
+  }, [exploreEval?.bestMove]);
+  const boardArrows = explorer.active ? exploreArrows : arrows;
+
+  // Drag a piece → branch into (or extend) a variation.
+  const handlePieceDrop = useCallback(
+    (from: string, to: string, piece: string) => {
+      if (!activeGame) return false;
+      const isPawn = piece?.[1]?.toUpperCase() === "P";
+      const lastRank = to[1] === "8" || to[1] === "1";
+      const promotion = isPawn && lastRank ? "q" : undefined;
+      return explorer.move(review.currentFen, from, to, promotion);
+    },
+    [activeGame, explorer, review.currentFen]
+  );
+
   // ---- Account / library actions ----
   const handleAnalyze = useCallback(
     (pgn: string) => {
+      explorer.exit();
       setLoadedSavedId(null);
       setSaveState("idle");
       review.loadPgns(pgn);
     },
-    [review]
+    [review, explorer]
   );
 
   const handleLoadSaved = useCallback(
     (g: SavedGame) => {
+      explorer.exit();
       setLoadedSavedId(g.id);
       setSaveState("idle");
       review.loadSavedGame({
@@ -191,7 +258,7 @@ export default function Home() {
       });
       setLibraryOpen(false);
     },
-    [review]
+    [review, explorer]
   );
 
   const canSave = !!activeGame && !!session.account;
@@ -258,7 +325,14 @@ export default function Home() {
           username={review.username}
           setUsername={review.setUsername}
         />
-        <GameTabs games={review.games} activeIndex={review.activeIndex} onSelect={review.setActive} />
+        <GameTabs
+          games={review.games}
+          activeIndex={review.activeIndex}
+          onSelect={(i) => {
+            explorer.exit();
+            review.setActive(i);
+          }}
+        />
       </div>
 
       {/* Workspace: board centered; engine/review on the left; move list on the right. */}
@@ -276,29 +350,34 @@ export default function Home() {
               )}
             </div>
 
-            <EvalBar line={activeGame?.results[review.ply]} orientation={review.boardOrientation} />
+            <EvalBar line={boardEval} orientation={review.boardOrientation} />
             <BoardPanel
-              fen={review.currentFen}
+              fen={displayedFen}
               orientation={review.boardOrientation}
-              arrows={arrows}
+              arrows={boardArrows}
+              draggable={!!activeGame}
+              onPieceDrop={handlePieceDrop}
             />
 
             <div />
             <div className="flex items-center justify-between text-sm text-neutral-300">
               <span className="font-medium">{bottomName}</span>
-              {activeGame && (
-                <span className="text-xs text-neutral-500">
-                  Ply {review.ply} / {activeGame.game.positions.length - 1}
-                </span>
-              )}
+              {activeGame &&
+                (explorer.active ? (
+                  <span className="text-xs font-medium text-classification-great">Variation</span>
+                ) : (
+                  <span className="text-xs text-neutral-500">
+                    Ply {review.ply} / {activeGame.game.positions.length - 1}
+                  </span>
+                ))}
             </div>
 
             <div />
             <NavigationControls
-              onStart={review.goToStart}
-              onPrevious={review.goToPrevious}
-              onNext={review.goToNext}
-              onEnd={review.goToEnd}
+              onStart={() => goToPly(0)}
+              onPrevious={() => goToPly(review.ply - 1)}
+              onNext={() => goToPly(review.ply + 1)}
+              onEnd={() => goToPly(activeGame ? activeGame.game.positions.length - 1 : 0)}
               onFlip={review.flipBoard}
               onPrevKeyMoment={goToPrevKeyMoment}
               onNextKeyMoment={goToNextKeyMoment}
@@ -316,7 +395,7 @@ export default function Home() {
                 plies={activeGame.game.plies}
                 classifications={classifications}
                 currentPly={review.ply}
-                onSelect={review.goTo}
+                onSelect={goToPly}
               />
             </div>
           )}
@@ -333,6 +412,20 @@ export default function Home() {
             progress={{ done: activeGame?.done ?? 0, total: activeGame?.total ?? 0 }}
             classification={classifications[review.ply]}
           />
+          <ExplorePanel
+            active={explorer.active}
+            line={explorer.line}
+            rootFen={explorer.rootFen}
+            baseFen={displayedFen}
+            evalLine={boardEval}
+            thinking={exploreThinking}
+            hasGame={!!activeGame}
+            onPlayUci={(uci) => explorer.playLine(review.currentFen, uci)}
+            onTruncate={explorer.truncate}
+            onUndo={explorer.undo}
+            onReset={explorer.reset}
+            onExit={explorer.exit}
+          />
           <ExplanationPanel
             explanation={explanations[review.ply]}
             classification={classifications[review.ply]}
@@ -346,7 +439,7 @@ export default function Home() {
           <MoveList
             plies={activeGame?.game.plies ?? []}
             currentPly={review.ply}
-            onSelect={review.goTo}
+            onSelect={goToPly}
             classifications={classifications}
             explanations={explanations}
           />
@@ -381,11 +474,11 @@ export default function Home() {
           </div>
 
           {tab === "summary" && (
-            <HighlightsPanel highlights={highlights} onJumpToPly={review.goTo} />
+            <HighlightsPanel highlights={highlights} onJumpToPly={goToPly} />
           )}
           {tab === "stats" && <StatsPanel stats={stats} whiteName={white} blackName={black} />}
-          {tab === "insights" && <InsightsPanel insights={insights} onJumpToPly={review.goTo} />}
-          {tab === "coach" && coach && <CoachPanel report={coach} onJumpToPly={review.goTo} />}
+          {tab === "insights" && <InsightsPanel insights={insights} onJumpToPly={goToPly} />}
+          {tab === "coach" && coach && <CoachPanel report={coach} onJumpToPly={goToPly} />}
           {tab === "trends" && trends && <TrendsPanel trends={trends} />}
         </section>
       )}
