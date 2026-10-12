@@ -1,5 +1,14 @@
 # Chess Game Analysis
 
+**Live demo:** https://sahasreddye-sys.github.io/chess-game-analysis/
+
+![Chess game analysis screenshot](docs/screenshot.jpg)
+
+![Next.js](https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Stockfish](https://img.shields.io/badge/engine-Stockfish%2016%20WASM-4CAF50)
+![GitHub Pages](https://img.shields.io/badge/hosted%20on-GitHub%20Pages-222?logo=github)
+
 A free, open-source alternative to Chess.com's Game Review. Paste a PGN and get
 a full review — powered entirely by a local Stockfish (WASM) engine. No paid
 APIs, no backend.
